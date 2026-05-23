@@ -120,6 +120,7 @@ class RelayServer
       token = issue_token(subdomain)
       @clients[subdomain] = {
         socket: control_socket,
+        write_mutex: Mutex.new,
         token: token,
         missed_pongs: 0,
         pong_received: true
@@ -128,7 +129,8 @@ class RelayServer
 
     url = "https://#{subdomain}#{@domain_suffix}"
     enable_tcp_keepalive(control_socket)
-    control_socket.puts({ status: 'ok', url: url, token: token }.to_json)
+    client = @mutex.synchronize { @clients[subdomain] }
+    send_to_client(client, { status: 'ok', url: url, token: token })
 
     puts reused ? "✅ Tunnel reconnected: #{url}" : "✅ Tunnel registered: #{url}"
     subdomain
@@ -228,7 +230,7 @@ class RelayServer
 
     # 4. Ask the client to open a new data connection
     begin
-      control_socket.puts({ action: 'new_connection', conn_id: conn_id }.to_json)
+      send_to_client(client, { action: 'new_connection', conn_id: conn_id })
     rescue => e
       send_error(browser_socket, 502, "Failed to reach tunnel.")
       return
@@ -250,12 +252,19 @@ class RelayServer
     puts "❌ HTTP routing error: #{e.message}"
   ensure
     @mutex.synchronize { @pending_connections.delete(conn_id) } if conn_id
+    data_socket.close rescue nil if data_socket
     browser_socket.close rescue nil
   end
 
   # ==============================================================
   # HELPERS
   # ==============================================================
+  def send_to_client(client, payload)
+    client[:write_mutex].synchronize do
+      client[:socket].puts(payload.to_json)
+    end
+  end
+
   def issue_token(subdomain)
     loop do
       token = SecureRandom.hex(16)
@@ -356,7 +365,7 @@ class RelayServer
           end
 
           client[:pong_received] = false
-          to_ping << client[:socket]
+          to_ping << client
         end
       end
 
@@ -365,8 +374,8 @@ class RelayServer
         socket.close rescue nil
       end
 
-      to_ping.each do |socket|
-        socket.puts({ action: 'ping' }.to_json)
+      to_ping.each do |client|
+        send_to_client(client, { action: 'ping' })
       rescue IOError, SystemCallError
       end
     end
@@ -432,7 +441,7 @@ class RelayServer
              when 504 then "Gateway Timeout"
              else "Bad Gateway"
              end
-    socket.print "HTTP/1.1 #{code} #{status}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n#{message}"
+    socket.print "HTTP/1.1 #{code} #{status}\r\nConnection: close\r\nContent-Length: #{message.bytesize}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n#{message}"
     socket.close rescue nil
   end
 end
