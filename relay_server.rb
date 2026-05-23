@@ -85,9 +85,11 @@ class RelayServer
 
     request = JSON.parse(line)
 
-    if request['action'] == 'register'
-      handle_registration(socket, request)
-    elsif request['action'] == 'bind'
+    case request['action']
+    when 'register'
+      subdomain = handle_registration(socket, request)
+      run_control_loop(socket, subdomain) if subdomain
+    when 'bind'
       handle_data_bind(socket, request['conn_id'])
     end
   rescue => e
@@ -128,17 +130,13 @@ class RelayServer
     enable_tcp_keepalive(control_socket)
     control_socket.puts({ status: 'ok', url: url, token: token }.to_json)
 
-    if reused
-      puts "✅ Tunnel reconnected: #{url}"
-    else
-      puts "✅ Tunnel registered: #{url}"
-    end
+    puts reused ? "✅ Tunnel reconnected: #{url}" : "✅ Tunnel registered: #{url}"
+    subdomain
+  end
 
-    loop do
-      line = control_socket.gets
-      break unless line
-
-      message = JSON.parse(line)
+  def run_control_loop(control_socket, subdomain)
+    while (line = control_socket.gets)
+      message = JSON.parse(line) rescue next
       next unless message['action'] == 'pong'
 
       @mutex.synchronize do
@@ -150,15 +148,11 @@ class RelayServer
       end
     end
   ensure
-    if subdomain
-      @mutex.synchronize do
-        client = @clients[subdomain]
-        if client && client[:socket] == control_socket
-          @clients.delete(subdomain)
-        end
-      end
-      puts "🔴 Tunnel #{subdomain} disconnected"
+    @mutex.synchronize do
+      client = @clients[subdomain]
+      @clients.delete(subdomain) if client && client[:socket] == control_socket
     end
+    puts "🔴 Tunnel #{subdomain} disconnected"
     control_socket.close rescue nil
   end
 
@@ -190,14 +184,31 @@ class RelayServer
   def handle_public_request(browser_socket)
     buffer = ""
     host = nil
+    conn_id = nil
+    client_ip = browser_socket.remote_address.ip_address rescue "127.0.0.1"
 
-    # 1. Read headers and extract Host
-    while (line = browser_socket.gets)
-      buffer << line
-      if match = line.match(/^Host:\s+([^\r\n]+)/i)
-        host = match[1]
+    begin
+      Timeout.timeout(5) do
+        while (line = browser_socket.gets)
+          if line.strip.empty?
+            buffer << "X-Forwarded-For: #{client_ip}\r\n"
+            buffer << "X-Forwarded-Proto: https\r\n"
+            buffer << "\r\n"
+            break
+          end
+
+          next if line.match?(/^X-Forwarded-/i)
+
+          # 1. Read headers and extract Host
+          buffer << line
+          if match = line.match(/^Host:\s+([^\r\n]+)/i)
+            host = match[1]
+          end
+        end
       end
-      break if line.strip.empty? # End of headers
+    rescue Timeout::Error
+      send_error(browser_socket, 408, "Request Timeout")
+      return
     end
 
     # 2. Resolve tunnel owner (dev-a1b2.tunnel.test -> dev-a1b2)
@@ -228,7 +239,6 @@ class RelayServer
     begin
       Timeout.timeout(10) { data_socket = queue.pop }
     rescue Timeout::Error
-      @mutex.synchronize { @pending_connections.delete(conn_id) }
       send_error(browser_socket, 504, "Timeout: local server did not respond.")
       return
     end
@@ -236,10 +246,10 @@ class RelayServer
     # 6. Bidirectional stream proxy
     data_socket.write(buffer) # Forward headers already read from the browser
     proxy_stream(browser_socket, data_socket)
-
   rescue => e
     puts "❌ HTTP routing error: #{e.message}"
   ensure
+    @mutex.synchronize { @pending_connections.delete(conn_id) } if conn_id
     browser_socket.close rescue nil
   end
 
