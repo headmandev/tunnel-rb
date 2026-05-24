@@ -8,7 +8,7 @@ module Relay
   # currently-connected client never expire (they're refreshed implicitly).
   # Tokens of disconnected clients age out after TOKEN_TTL.
   class TokenStore
-    DEFAULT_PATH = "/tmp/rails-tunnel-relay-server-tokens.json".freeze
+    DEFAULT_PATH = "/tmp/tunnel-rb-relay-server-tokens.json".freeze
     TOKEN_TTL = 24 * 3600 # seconds
     CLEANUP_INTERVAL = 600
     SUBDOMAIN_PREFIX = "dev-".freeze

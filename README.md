@@ -1,4 +1,4 @@
-# rails-tunnel
+# tunnel-rb
 
 Expose a local HTTP server (e.g. a Rails app on port 3000) to the internet through a relay. A tunnel **client** running on your machine maintains a persistent control connection to a relay **server**; incoming browser traffic hits the server and is forwarded through the client to your local process.
 
@@ -22,10 +22,12 @@ Browser                    Relay Server                         Tunnel Client   
 
 The relay server listens on two ports:
 
-| Port | Role | Who connects |
-|------|------|--------------|
+
+| Port               | Role                                         | Who connects   |
+| ------------------ | -------------------------------------------- | -------------- |
 | **7777** (control) | Registration, ping/pong, data-socket handoff | Tunnel clients |
-| **8080** (public) | Incoming HTTP from browsers / nginx | End users |
+| **8080** (public)  | Incoming HTTP from browsers / nginx          | End users      |
+
 
 Each tunneled HTTP request uses **two** TCP connections on the control port:
 
@@ -85,13 +87,15 @@ Press **Ctrl+C** or send **SIGTERM** for graceful shutdown (listeners closed, th
 
 `Relay::Server` accepts keyword arguments:
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `control_port` | `7777` | Tunnel client control plane |
-| `public_port` | `8080` | Public HTTP edge |
-| `domain_suffix` | `".tunnel.test"` | Appended to subdomain in the registration URL (`https://{subdomain}{suffix}`) |
-| `tokens_path` | `/tmp/rails-tunnel-relay-server-tokens.json` | Persistent token store |
-| `logger` | `Relay::Logger.new` | Injectable logger (stdout/stderr) |
+
+| Option          | Default                                      | Description                                                                   |
+| --------------- | -------------------------------------------- | ----------------------------------------------------------------------------- |
+| `control_port`  | `7777`                                       | Tunnel client control plane                                                   |
+| `public_port`   | `8080`                                       | Public HTTP edge                                                              |
+| `domain_suffix` | `".tunnel.test"`                             | Appended to subdomain in the registration URL (`https://{subdomain}{suffix}`) |
+| `tokens_path`   | `/tmp/tunnel-rb-relay-server-tokens.json` | Persistent token store                                                        |
+| `logger`        | `Relay::Logger.new`                          | Injectable logger (stdout/stderr)                                             |
+
 
 Example with custom options:
 
@@ -102,7 +106,7 @@ Relay::Server.new(
   control_port: 7777,
   public_port: 8080,
   domain_suffix: ".tunnel.example.com",
-  tokens_path: "/var/lib/rails-tunnel/tokens.json"
+  tokens_path: "/var/lib/tunnel-rb/tokens.json"
 ).start
 ```
 
@@ -125,17 +129,19 @@ lib/relay/
 
 ### Limits and behaviour
 
-| Setting | Value | Effect |
-|---------|-------|--------|
-| Handshake pool | 64 workers + 64 queue | Backpressure on control-port connection floods |
-| Public pool | 200 workers + 200 queue | Backpressure on HTTP connection floods |
-| Ping interval | 30 s | Keeps NAT mappings alive |
-| Missed pongs | 3 | Unresponsive clients are disconnected |
-| HTTP header read timeout | 5 s | Slowloris protection on public port |
-| Data socket wait | 10 s | Timeout if client does not bind in time |
-| Control line max | 16 KiB | Slowloris protection on control read loop |
-| Token TTL | 24 h | Tokens expire when no client holds the subdomain |
-| Token cleanup | every 10 min | Background sweep of expired tokens |
+
+| Setting                  | Value                   | Effect                                           |
+| ------------------------ | ----------------------- | ------------------------------------------------ |
+| Handshake pool           | 64 workers + 64 queue   | Backpressure on control-port connection floods   |
+| Public pool              | 200 workers + 200 queue | Backpressure on HTTP connection floods           |
+| Ping interval            | 30 s                    | Keeps NAT mappings alive                         |
+| Missed pongs             | 3                       | Unresponsive clients are disconnected            |
+| HTTP header read timeout | 5 s                     | Slowloris protection on public port              |
+| Data socket wait         | 10 s                    | Timeout if client does not bind in time          |
+| Control line max         | 16 KiB                  | Slowloris protection on control read loop        |
+| Token TTL                | 24 h                    | Tokens expire when no client holds the subdomain |
+| Token cleanup            | every 10 min            | Background sweep of expired tokens               |
+
 
 ### Token persistence
 
@@ -173,8 +179,8 @@ client.start
 2. Sends `register` (with optional `token` on reconnect).
 3. Receives `{ status: "ok", url: "...", token: "..." }`.
 4. Enters a read loop on the control socket:
-   - **`ping`** → replies with **`pong`** (keeps the connection alive through NAT).
-   - **`new_connection`** → opens a fresh TCP connection, sends `bind` with the given `conn_id`, proxies bytes between relay and `localhost:{local_port}`.
+  - `**ping**` → replies with `**pong**` (keeps the connection alive through NAT).
+  - `**new_connection**` → opens a fresh TCP connection, sends `bind` with the given `conn_id`, proxies bytes between relay and `localhost:{local_port}`.
 5. On disconnect, waits 2 seconds and reconnects automatically (reusing the saved token).
 
 ### Reconnection
@@ -199,24 +205,30 @@ All messages are **newline-delimited JSON** (one object per line).
 
 ### Client → server (first message on every TCP connection)
 
-| `action` | Fields | Purpose |
-|----------|--------|---------|
-| `register` | `token` (optional) | Claim or reclaim a subdomain |
-| `bind` | `conn_id` | Attach a data socket to a pending browser request |
+
+| `action`   | Fields             | Purpose                                           |
+| ---------- | ------------------ | ------------------------------------------------- |
+| `register` | `token` (optional) | Claim or reclaim a subdomain                      |
+| `bind`     | `conn_id`          | Attach a data socket to a pending browser request |
+
 
 ### Server → client (on control channel)
 
-| `action` / field | Purpose |
-|------------------|---------|
-| `{ status: "ok", url: "...", token: "..." }` | Registration response |
-| `{ action: "ping" }` | Liveness check |
-| `{ action: "new_connection", conn_id: "uuid" }` | Open a data channel |
+
+| `action` / field                                | Purpose               |
+| ----------------------------------------------- | --------------------- |
+| `{ status: "ok", url: "...", token: "..." }`    | Registration response |
+| `{ action: "ping" }`                            | Liveness check        |
+| `{ action: "new_connection", conn_id: "uuid" }` | Open a data channel   |
+
 
 ### Client → server (on control channel, after register)
 
-| `action` | Purpose |
-|----------|---------|
+
+| `action`             | Purpose       |
+| -------------------- | ------------- |
 | `{ action: "pong" }` | Reply to ping |
+
 
 ### Request flow (one HTTP request)
 
@@ -246,7 +258,7 @@ ruby -Ilib -Itest test/relay/token_store_test.rb
 ruby -Ilib -Itest test/relay/integration_test.rb
 ```
 
-Integration tests start a real `Relay::Server` on random free ports with an isolated token file. They do **not** touch `/tmp/rails-tunnel-relay-server-tokens.json`.
+Integration tests start a real `Relay::Server` on random free ports with an isolated token file. They do **not** touch `/tmp/tunnel-rb-relay-server-tokens.json`.
 
 ---
 
@@ -265,3 +277,4 @@ test/relay/               Unit and integration tests
 
 - Ruby 3.x (tested on 3.4)
 - No gems required to run the server or client
+
