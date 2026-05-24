@@ -52,7 +52,7 @@ rails server -p 3000
 **Terminal 3 — tunnel client**
 
 ```bash
-ruby tunnel_client.rb
+ruby tunnel_client.rb 3000
 ```
 
 The client prints a public URL, e.g.:
@@ -163,25 +163,41 @@ On first registration the server assigns a random subdomain (e.g. `dev-a1b2c3d4`
 ### Running
 
 ```bash
-ruby tunnel_client.rb
+ruby tunnel_client.rb 3000
+ruby tunnel_client.rb 3000 --relay-host relay.example.com --relay-port 7777
+ruby tunnel_client.rb --help
 ```
 
-By default the client connects to `localhost:7777` and forwards traffic to `localhost:3000`. Edit the bottom of `tunnel_client.rb` to change host, relay port, or local port:
+The local port can be passed as the first positional argument or via the `LOCAL_PORT` environment variable. The client exits with status 1 if neither is set.
 
-```ruby
-client = TunnelClient.new('relay.example.com', 7777, 3000)
-client.start
+### Configuration
+
+
+| Flag            | Env var       | Default     | Description                          |
+| --------------- | ------------- | ----------- | ------------------------------------ |
+| (positional)    | `LOCAL_PORT`  | —           | Port of the local service (required) |
+| `--local-host`  | `LOCAL_HOST`  | `localhost` | Host of the local service            |
+| `--relay-host`  | `RELAY_HOST`  | `localhost` | Relay server host                    |
+| `--relay-port`  | `RELAY_PORT`  | `7777`      | Relay server control port            |
+
+
+Examples:
+
+```bash
+RELAY_HOST=relay.example.com LOCAL_PORT=3000 ruby tunnel_client.rb
+ruby tunnel_client.rb 3000 --local-host 127.0.0.1
 ```
 
 ### Behaviour
 
-1. Opens a TCP connection to the relay control port.
+1. Opens a TCP connection to the relay control port (5 s connect timeout).
 2. Sends `register` (with optional `token` on reconnect).
 3. Receives `{ status: "ok", url: "...", token: "..." }`.
 4. Enters a read loop on the control socket:
   - `**ping**` → replies with `**pong**` (keeps the connection alive through NAT).
-  - `**new_connection**` → opens a fresh TCP connection, sends `bind` with the given `conn_id`, proxies bytes between relay and `localhost:{local_port}`.
-5. On disconnect, waits 2 seconds and reconnects automatically (reusing the saved token).
+  - `**new_connection**` → opens a fresh TCP connection, sends `bind` with the given `conn_id`, proxies bytes between relay and the local service.
+5. If the local service is unreachable (connection refused, host unreachable, DNS failure, connect timeout), the client sends a `502 Bad Gateway` HTTP response back through the relay instead of dropping the connection.
+6. On disconnect, the client reconnects automatically with **exponential backoff** (1 s → 2 s → 4 s → … capped at 30 s, reset to 1 s after a successful registration), reusing the saved token.
 
 ### Reconnection
 

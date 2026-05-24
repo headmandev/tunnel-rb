@@ -1,27 +1,44 @@
 require 'socket'
 require 'json'
+require 'optparse'
 
 class TunnelClient
   TCP_KEEPALIVE_IDLE = 60
   TCP_KEEPALIVE_INTERVAL = 30
   TCP_KEEPALIVE_PROBES = 3
 
-  def initialize(relay_host, relay_port, local_port)
+  CONNECT_TIMEOUT = 5            # seconds; applies to both relay and local connect
+  RECONNECT_INITIAL_DELAY = 1    # seconds
+  RECONNECT_MAX_DELAY = 30       # seconds; cap for exponential backoff
+
+  LOCAL_UNREACHABLE_ERRORS = [
+    Errno::ECONNREFUSED,
+    Errno::EHOSTUNREACH,
+    Errno::ENETUNREACH,
+    Errno::ETIMEDOUT,
+    SocketError
+  ].freeze
+
+  def initialize(relay_host:, relay_port:, local_host: 'localhost', local_port:)
     @relay_host = relay_host
     @relay_port = relay_port
+    @local_host = local_host
     @local_port = local_port
     @token = nil
   end
 
   def start
+    attempt = 0
     loop do
-      connect_and_run
+      connect_and_run { attempt = 0 }
     rescue Interrupt
       puts "\n[Tunnel] Shutting down..."
       break
     rescue => e
-      puts "[Tunnel] Disconnected: #{e.message}. Reconnecting in 2s..."
-      sleep 2
+      delay = [RECONNECT_INITIAL_DELAY * (2**attempt), RECONNECT_MAX_DELAY].min
+      attempt += 1
+      puts "[Tunnel] Disconnected: #{e.message}. Reconnecting in #{delay}s..."
+      sleep delay
     end
   ensure
     @control_socket&.close
@@ -30,24 +47,24 @@ class TunnelClient
   private
 
   def connect_and_run
-    @control_socket = TCPSocket.new(@relay_host, @relay_port)
+    @control_socket = open_tcp(@relay_host, @relay_port)
     enable_tcp_keepalive(@control_socket)
 
     payload = { action: 'register' }
     payload[:token] = @token if @token
     @control_socket.puts(payload.to_json)
 
-    response = JSON.parse(@control_socket.gets)
+    response = read_json(@control_socket, "registration response")
     raise "Registration failed: #{response['error']}" if response['status'] != 'ok'
 
     @token = response['token']
-    puts "\n🚀 [Tunnel] Ready! #{response['url']} -> localhost:#{@local_port}\n\n"
+    puts "\n🚀 [Tunnel] Ready! #{response['url']} -> #{@local_host}:#{@local_port}\n\n"
+
+    yield if block_given?
 
     loop do
-      line = @control_socket.gets
-      break unless line
+      command = read_json(@control_socket, "command")
 
-      command = JSON.parse(line)
       case command['action']
       when 'ping'
         @control_socket.puts({ action: 'pong' }.to_json)
@@ -58,19 +75,57 @@ class TunnelClient
   end
 
   def handle_data_connection(conn_id)
-    relay_sock = TCPSocket.new(@relay_host, @relay_port)
+    relay_sock =
+      begin
+        open_tcp(@relay_host, @relay_port)
+      rescue => e
+        warn "[Tunnel] Failed to open data connection to relay: #{e.message}"
+        return
+      end
+
     relay_sock.puts({ action: 'bind', conn_id: conn_id }.to_json)
 
-    local_sock = TCPSocket.new('localhost', @local_port)
+    begin
+      local_sock = open_tcp(@local_host, @local_port)
+    rescue *LOCAL_UNREACHABLE_ERRORS => e
+      respond_bad_gateway(relay_sock, e)
+      return
+    end
 
     t1 = Thread.new { proxy_stream(relay_sock, local_sock) }
     t2 = Thread.new { proxy_stream(local_sock, relay_sock) }
-
     t1.join
     t2.join
   ensure
     relay_sock&.close
     local_sock&.close
+  end
+
+  def open_tcp(host, port)
+    Socket.tcp(host, port, connect_timeout: CONNECT_TIMEOUT)
+  end
+
+  def read_json(socket, what)
+    line = socket.gets
+    raise "Relay closed connection while waiting for #{what}" if line.nil?
+
+    JSON.parse(line)
+  rescue JSON::ParserError => e
+    raise "Invalid #{what} from relay: #{e.message}"
+  end
+
+  def respond_bad_gateway(relay_sock, error)
+    body = "Local service #{@local_host}:#{@local_port} is not reachable: #{error.message}\n"
+    relay_sock.write(
+      "HTTP/1.1 502 Bad Gateway\r\n" \
+      "Connection: close\r\n" \
+      "Content-Type: text/plain; charset=utf-8\r\n" \
+      "Content-Length: #{body.bytesize}\r\n" \
+      "\r\n" \
+      "#{body}"
+    )
+  rescue IOError, SystemCallError
+    # Browser/relay already gone, nothing to do.
   end
 
   def enable_tcp_keepalive(socket)
@@ -94,6 +149,37 @@ class TunnelClient
   end
 end
 
-# Start the client (connects to the local relay and proxies to port 3000)
-client = TunnelClient.new('localhost', 7777, 3000)
-client.start
+def parse_options(argv)
+  options = {
+    relay_host: ENV.fetch('RELAY_HOST', 'localhost'),
+    relay_port: Integer(ENV.fetch('RELAY_PORT', '7777')),
+    local_host: ENV.fetch('LOCAL_HOST', 'localhost'),
+    local_port: ENV['LOCAL_PORT'] ? Integer(ENV['LOCAL_PORT']) : nil
+  }
+
+  parser = OptionParser.new do |opts|
+    opts.banner = "Usage: tunnel_client.rb [LOCAL_PORT] [options]"
+    opts.on('--relay-host HOST', "Relay host (default: #{options[:relay_host]})") { |v| options[:relay_host] = v }
+    opts.on('--relay-port PORT', Integer, "Relay port (default: #{options[:relay_port]})") { |v| options[:relay_port] = v }
+    opts.on('--local-host HOST', "Local host (default: #{options[:local_host]})") { |v| options[:local_host] = v }
+    opts.on('-h', '--help', 'Show this help') do
+      puts opts
+      exit
+    end
+  end
+  parser.parse!(argv)
+
+  options[:local_port] = Integer(argv[0]) if argv[0]
+
+  if options[:local_port].nil?
+    warn "Error: local port is required (positional argument or LOCAL_PORT env var)"
+    warn parser.help
+    exit 1
+  end
+
+  options
+end
+
+if $PROGRAM_NAME == __FILE__
+  TunnelClient.new(**parse_options(ARGV)).start
+end
