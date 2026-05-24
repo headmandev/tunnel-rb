@@ -77,8 +77,8 @@ The `Host` header must match the assigned subdomain. For local testing the defau
 
 ```bash
 bin/relay_server
-ruby relay_server.rb          # compatibility shim
-ruby -Ilib -e 'require "relay/server"; Relay::Server.new.start'
+# or
+ruby relay_server.rb
 ```
 
 Press **Ctrl+C** or send **SIGTERM** for graceful shutdown (listeners closed, thread pools drained, tokens persisted).
@@ -88,13 +88,13 @@ Press **Ctrl+C** or send **SIGTERM** for graceful shutdown (listeners closed, th
 `Relay::Server` accepts keyword arguments:
 
 
-| Option          | Default                                      | Description                                                                   |
-| --------------- | -------------------------------------------- | ----------------------------------------------------------------------------- |
-| `control_port`  | `7777`                                       | Tunnel client control plane                                                   |
-| `public_port`   | `8080`                                       | Public HTTP edge                                                              |
-| `domain_suffix` | `".tunnel.test"`                             | Appended to subdomain in the registration URL (`https://{subdomain}{suffix}`) |
+| Option          | Default                                   | Description                                                                   |
+| --------------- | ----------------------------------------- | ----------------------------------------------------------------------------- |
+| `control_port`  | `7777`                                    | Tunnel client control plane                                                   |
+| `public_port`   | `8080`                                    | Public HTTP edge                                                              |
+| `domain_suffix` | `".tunnel.test"`                          | Appended to subdomain in the registration URL (`https://{subdomain}{suffix}`) |
 | `tokens_path`   | `/tmp/tunnel-rb-relay-server-tokens.json` | Persistent token store                                                        |
-| `logger`        | `Relay::Logger.new`                          | Injectable logger (stdout/stderr)                                             |
+| `logger`        | `Relay::Logger.new`                       | Injectable logger (stdout/stderr)                                             |
 
 
 Example with custom options:
@@ -173,12 +173,12 @@ The local port can be passed as the first positional argument or via the `LOCAL_
 ### Configuration
 
 
-| Flag            | Env var       | Default     | Description                          |
-| --------------- | ------------- | ----------- | ------------------------------------ |
-| (positional)    | `LOCAL_PORT`  | —           | Port of the local service (required) |
-| `--local-host`  | `LOCAL_HOST`  | `localhost` | Host of the local service            |
-| `--relay-host`  | `RELAY_HOST`  | `localhost` | Relay server host                    |
-| `--relay-port`  | `RELAY_PORT`  | `7777`      | Relay server control port            |
+| Flag           | Env var      | Default     | Description                          |
+| -------------- | ------------ | ----------- | ------------------------------------ |
+| (positional)   | `LOCAL_PORT` | —           | Port of the local service (required) |
+| `--local-host` | `LOCAL_HOST` | `localhost` | Host of the local service            |
+| `--relay-host` | `RELAY_HOST` | `localhost` | Relay server host                    |
+| `--relay-port` | `RELAY_PORT` | `7777`      | Relay server control port            |
 
 
 Examples:
