@@ -2,7 +2,7 @@ require 'socket'
 require 'json'
 require 'optparse'
 
-class TunnelClient
+class Tunnel
   TCP_KEEPALIVE_IDLE = 60
   TCP_KEEPALIVE_INTERVAL = 30
   TCP_KEEPALIVE_PROBES = 3
@@ -158,7 +158,7 @@ def parse_options(argv)
   }
 
   parser = OptionParser.new do |opts|
-    opts.banner = "Usage: tunnel_client.rb [LOCAL_PORT] [options]"
+    opts.banner = "Usage: tunnel.rb [LOCAL_PORT] [options]"
     opts.on('--relay-host HOST', "Relay host (default: #{options[:relay_host]})") { |v| options[:relay_host] = v }
     opts.on('--relay-port PORT', Integer, "Relay port (default: #{options[:relay_port]})") { |v| options[:relay_port] = v }
     opts.on('--local-host HOST', "Local host (default: #{options[:local_host]})") { |v| options[:local_host] = v }
@@ -181,5 +181,5 @@ def parse_options(argv)
 end
 
 if $PROGRAM_NAME == __FILE__
-  TunnelClient.new(**parse_options(ARGV)).start
+  Tunnel.new(**parse_options(ARGV)).start
 end

@@ -52,7 +52,7 @@ rails server -p 3000
 **Terminal 3 — tunnel client**
 
 ```bash
-ruby tunnel_client.rb 3000
+ruby tunnel.rb 3000
 ```
 
 The client prints a public URL, e.g.:
@@ -163,9 +163,9 @@ On first registration the server assigns a random subdomain (e.g. `dev-a1b2c3d4`
 ### Running
 
 ```bash
-ruby tunnel_client.rb 3000
-ruby tunnel_client.rb 3000 --relay-host relay.example.com --relay-port 7777
-ruby tunnel_client.rb --help
+ruby tunnel.rb 3000
+ruby tunnel.rb 3000 --relay-host relay.example.com --relay-port 7777
+ruby tunnel.rb --help
 ```
 
 The local port can be passed as the first positional argument or via the `LOCAL_PORT` environment variable. The client exits with status 1 if neither is set.
@@ -184,8 +184,8 @@ The local port can be passed as the first positional argument or via the `LOCAL_
 Examples:
 
 ```bash
-RELAY_HOST=relay.example.com LOCAL_PORT=3000 ruby tunnel_client.rb
-ruby tunnel_client.rb 3000 --local-host 127.0.0.1
+RELAY_HOST=relay.example.com LOCAL_PORT=3000 ruby tunnel.rb
+ruby tunnel.rb 3000 --local-host 127.0.0.1
 ```
 
 ### Behaviour
@@ -284,7 +284,7 @@ Integration tests start a real `Relay::Server` on random free ports with an isol
 bin/relay_server          Entry point
 lib/relay/                Server implementation
 relay_server.rb           Compatibility shim
-tunnel_client.rb          Tunnel client
+tunnel.rb                 Tunnel client
 relay.rb                  Legacy single-file prototype (not used by bin/relay_server)
 test/relay/               Unit and integration tests
 ```
