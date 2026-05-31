@@ -213,6 +213,14 @@ Relay::Server.new(
 
 On startup the server logs whether the control plane is running with TLS enabled.
 
+For **Let's Encrypt**, point `tls_cert` / `RELAY_TLS_CERT` at **`fullchain.pem`**, not `cert.pem`. The relay sends the entire chain to clients; a leaf cert alone causes `certificate verify failed (unable to get local issuer certificate)` on the client. A single PEM file (e.g. a self-signed test cert) still works — the server loads one or more certificates from the file.
+
+```bash
+RELAY_TLS_CERT=/etc/letsencrypt/live/relay.example.com/fullchain.pem \
+RELAY_TLS_KEY=/etc/letsencrypt/live/relay.example.com/privkey.pem \
+bin/relay_server
+```
+
 ### Client
 
 TLS and certificate verification are **on by default**. Connecting to a relay with a publicly trusted cert needs no flags:
@@ -232,6 +240,8 @@ ruby tunnel.rb 3000 --no-tls
 ```
 
 The same options are available via `RELAY_TLS` / `RELAY_TLS_VERIFY` (`1`/`true`/`yes`, default on) and `RELAY_TLS_CA`.
+
+`--[no-]tls` applies **only to connections to the relay** (control and data sockets). The link to your local app (e.g. Rails on `:3000`) is always plain TCP — even when relay TLS is on.
 
 The client has three TLS verification modes (TLS itself is toggled with `--[no-]tls`):
 
@@ -289,7 +299,7 @@ ruby tunnel.rb 3000 --local-host 127.0.0.1
 3. Receives `{ status: "ok", url: "...", token: "..." }`.
 4. Enters a read loop on the control socket:
   - `**ping**` → replies with `**pong**` (keeps the connection alive through NAT).
-  - `**new_connection**` → opens a fresh connection (same TLS setting), sends `bind` with the given `conn_id`, proxies bytes between relay and the local service.
+  - `**new_connection**` → opens a fresh TLS connection to the relay, sends `bind` with the given `conn_id`, then proxies bytes between relay and the local service over plain TCP.
 5. If the local service is unreachable (connection refused, host unreachable, DNS failure, connect timeout), the client sends a `502 Bad Gateway` HTTP response back through the relay instead of dropping the connection.
 6. On disconnect, the client reconnects automatically with **exponential backoff** (1 s → 2 s → 4 s → … capped at 30 s, reset to 1 s after a successful registration), reusing the saved token.
 

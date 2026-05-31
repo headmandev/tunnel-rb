@@ -92,7 +92,7 @@ class Tunnel
     relay_sock.puts({ action: 'bind', conn_id: conn_id }.to_json)
 
     begin
-      local_sock = open_tcp(@local_host, @local_port)
+      local_sock = open_tcp(@local_host, @local_port, tls: false)
     rescue *LOCAL_UNREACHABLE_ERRORS => e
       respond_bad_gateway(relay_sock, e)
       return
@@ -107,9 +107,9 @@ class Tunnel
     local_sock&.close
   end
 
-  def open_tcp(host, port)
+  def open_tcp(host, port, tls: @tls)
     tcp = Socket.tcp(host, port, connect_timeout: CONNECT_TIMEOUT)
-    return tcp unless @tls
+    return tcp unless tls
 
     ssl = OpenSSL::SSL::SSLSocket.new(tcp, @ssl_context)
     ssl.hostname = host # SNI
