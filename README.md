@@ -69,7 +69,7 @@ Send a request through the tunnel:
 curl -H "Host: a1b2c3d4.localhost:8080" http://127.0.0.1:8080/
 ```
 
-The `Host` header must match the assigned subdomain. For local testing the default suffix is `.localhost:8080`, so no `/etc/hosts` edits are needed when curling `127.0.0.1` directly.
+The `Host` header must match the assigned subdomain. For local testing the default domain is `localhost` and the URL includes the public port (`:8080`), so curling `127.0.0.1:8080` with `Host: <subdomain>.localhost:8080` needs no `/etc/hosts` edits.
 
 ---
 
@@ -93,13 +93,32 @@ Press **Ctrl+C** or send **SIGTERM** for graceful shutdown (listeners closed, th
 | Option          | Default                                   | Description                                                                   |
 | --------------- | ----------------------------------------- | ----------------------------------------------------------------------------- |
 | `control_port`  | `7777`                                    | Tunnel client control plane                                                   |
-| `public_port`   | `8080`                                    | Public HTTP edge                                                              |
-| `domain_suffix` | `".tunnel.test"`                          | Appended to subdomain in the registration URL (`https://{subdomain}{suffix}`) |
+| `public_port`   | `8080`                                    | Public HTTP edge (port the relay binds/listens on)                            |
+| `domain`        | `"tunnel.test"`                           | Base domain for the registration URL (`https://{subdomain}.{domain}`)         |
+| `url_port`      | `nil`                                     | Port shown in the registration URL; `nil` omits it (e.g. nginx on 443)        |
 | `tokens_path`   | `/tmp/tunnel-rb-relay-server-tokens.json` | Persistent token store                                                        |
 | `tls_cert`      | `nil`                                     | PEM cert path; enables TLS on the control port when set with `tls_key`        |
 | `tls_key`       | `nil`                                     | PEM private key path; enables TLS on the control port when set with `tls_cert`|
 | `logger`        | `Relay::Logger.new`                       | Injectable logger (stdout/stderr)                                             |
 
+When started via `bin/relay_server`, the control port, public port, and domain can be set with environment variables (defaults shown):
+
+| Env var              | Default          | Maps to        |
+| -------------------- | ---------------- | -------------- |
+| `RELAY_CONTROL_PORT` | `7777`           | `control_port` |
+| `RELAY_PUBLIC_PORT`  | `8080`           | `public_port`  |
+| `RELAY_DOMAIN`       | `localhost`      | `domain`       |
+| `RELAY_URL_PORT`     | `public_port`    | `url_port`     |
+
+`RELAY_URL_PORT` defaults to the public port, so locally the printed URL is `https://<subdomain>.localhost:8080`. Behind a reverse proxy (e.g. nginx terminating TLS on 443), the relay's `8080` is internal — set `RELAY_URL_PORT=` (empty) so the URL drops the port:
+
+```bash
+# Local dev: URL shows the port (https://<sub>.localhost:8080)
+bin/relay_server
+
+# Production behind nginx: clients see https://<sub>.tunnel.example.com (no port)
+RELAY_DOMAIN=tunnel.example.com RELAY_URL_PORT= bin/relay_server
+```
 
 Example with custom options:
 
@@ -109,7 +128,7 @@ require "relay/server"
 Relay::Server.new(
   control_port: 7777,
   public_port: 8080,
-  domain_suffix: ".tunnel.example.com",
+  domain: "tunnel.example.com",
   tokens_path: "/var/lib/tunnel-rb/tokens.json"
 ).start
 ```

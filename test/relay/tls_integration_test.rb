@@ -27,7 +27,7 @@ class TlsIntegrationTest < Minitest::Test
     @server = Relay::Server.new(
       control_port: @control_port,
       public_port: @public_port,
-      domain_suffix: ".test:#{@public_port}",
+      domain: "test",
       tokens_path: @tokens_file.path,
       tls_cert: @cert_file.path,
       tls_key: @key_file.path,

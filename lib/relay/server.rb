@@ -11,9 +11,10 @@ module Relay
   # background threads, and handles graceful shutdown on SIGINT/SIGTERM.
   class Server
     def initialize(
-      control_port: 7777,
-      public_port: 8080,
-      domain_suffix: ".tunnel.test",
+      control_port:,
+      public_port:,
+      domain:,
+      url_port: nil,
       tokens_path: TokenStore::DEFAULT_PATH,
       tls_cert: nil,
       tls_key: nil,
@@ -32,7 +33,8 @@ module Relay
 
       @control = ControlServer.new(
         port: control_port,
-        domain_suffix: domain_suffix,
+        domain: domain,
+        url_port: url_port,
         registry: @registry,
         token_store: @token_store,
         pending_connections: @pending_connections,

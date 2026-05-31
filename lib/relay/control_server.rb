@@ -19,9 +19,10 @@ module Relay
     SELECT_TIMEOUT = 1.0
     IDLE_SLEEP = 0.5 # when no clients are connected
 
-    def initialize(port:, domain_suffix:, registry:, token_store:, pending_connections:, logger:, tls_context: nil)
+    def initialize(port:, domain:, registry:, token_store:, pending_connections:, logger:, url_port: nil, tls_context: nil)
       @port = port
-      @domain_suffix = domain_suffix
+      @domain = domain
+      @url_port = url_port
       @registry = registry
       @token_store = token_store
       @pending_connections = pending_connections
@@ -143,7 +144,8 @@ module Relay
       client, old_socket = @registry.register(subdomain, control_socket, token)
       old_socket.close rescue nil if old_socket
 
-      url = "https://#{subdomain}#{@domain_suffix}"
+      authority = @url_port ? "#{subdomain}.#{@domain}:#{@url_port}" : "#{subdomain}.#{@domain}"
+      url = "https://#{authority}"
       SocketHelpers.enable_tcp_keepalive(control_socket)
       client.send_message(status: "ok", url: url, token: token)
 

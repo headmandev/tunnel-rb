@@ -24,7 +24,8 @@ class IntegrationTest < Minitest::Test
     @server = Relay::Server.new(
       control_port: @control_port,
       public_port: @public_port,
-      domain_suffix: ".test:#{@public_port}",
+      domain: "test",
+      url_port: @public_port,
       tokens_path: @tokens_file.path,
       logger: logger
     )
@@ -50,6 +51,7 @@ class IntegrationTest < Minitest::Test
 
     subdomain = welcome["url"][%r{\Ahttps://([^.]+)}, 1]
     refute_nil subdomain, "expected subdomain in URL #{welcome["url"].inspect}"
+    assert_equal "https://#{subdomain}.test:#{@public_port}", welcome["url"]
 
     fake_client = Thread.new { run_fake_client(control) }
 
