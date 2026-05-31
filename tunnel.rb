@@ -195,7 +195,7 @@ end
 
 def parse_options(argv)
   options = {
-    relay_host: ENV.fetch('RELAY_HOST', 'localhost'),
+    relay_host: ENV.fetch('RELAY_HOST', 'relay.tunnel-rb.dev'),
     relay_port: Integer(ENV.fetch('RELAY_PORT', '7777')),
     local_host: ENV.fetch('LOCAL_HOST', 'localhost'),
     local_port: ENV['LOCAL_PORT'] ? Integer(ENV['LOCAL_PORT']) : nil,

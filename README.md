@@ -71,6 +71,37 @@ curl -H "Host: a1b2c3d4.localhost:8080" http://127.0.0.1:8080/
 
 The `Host` header must match the assigned subdomain. For local testing the default domain is `localhost` and the URL includes the public port (`:8080`), so curling `127.0.0.1:8080` with `Host: <subdomain>.localhost:8080` needs no `/etc/hosts` edits.
 
+### Quick start (shared dev relay)
+
+Use the hosted relay at `relay.tunnel-rb.dev` — no local relay server needed. TLS to the relay is on by default (Let's Encrypt).
+
+**Terminal 1 — your local app** (example: Rails on 3000)
+
+```bash
+rails server -p 3000
+```
+
+**Terminal 2 — tunnel client**
+
+```bash
+ruby tunnel.rb 3000
+# same as: ruby tunnel.rb 3000 --relay-host relay.tunnel-rb.dev
+```
+
+The client prints a public URL, e.g.:
+
+```
+🚀 [Tunnel] Ready! https://a1b2c3d4.tunnel-rb.dev -> localhost:3000 (relay: TLS)
+```
+
+Open that URL in a browser, or:
+
+```bash
+curl -I https://a1b2c3d4.tunnel-rb.dev/
+```
+
+To use a different relay, pass `--relay-host` or set `RELAY_HOST`. For a **local** plaintext relay, use `--relay-host localhost --no-tls` (see [Quick start (local)](#quick-start-local) above).
+
 ---
 
 ## Relay server
@@ -262,12 +293,12 @@ The client has three TLS verification modes (TLS itself is toggled with `--[no-]
 ### Running
 
 ```bash
-ruby tunnel.rb 3000 --no-tls
-ruby tunnel.rb 3000 --relay-host relay.example.com --relay-port 7777
+ruby tunnel.rb 3000
+ruby tunnel.rb 3000 --relay-host localhost --no-tls   # local plaintext relay
 ruby tunnel.rb --help
 ```
 
-TLS is on by default (see [TLS](#tls-optional)); pass `--no-tls` when the relay is plaintext (local dev/testing).
+TLS is on by default (see [TLS](#tls-optional)); pass `--no-tls` when the relay is plaintext (local dev with `bin/relay_server`).
 
 The local port can be passed as the first positional argument or via the `LOCAL_PORT` environment variable. The client exits with status 1 if neither is set.
 
@@ -278,7 +309,7 @@ The local port can be passed as the first positional argument or via the `LOCAL_
 | -------------- | -------------- | ----------- | ---------------------------------------------------------------- |
 | (positional)   | `LOCAL_PORT`   | —           | Port of the local service (required)                             |
 | `--local-host` | `LOCAL_HOST`   | `localhost` | Host of the local service                                        |
-| `--relay-host` | `RELAY_HOST`   | `localhost` | Relay server host                                                |
+| `--relay-host` | `RELAY_HOST`   | `relay.tunnel-rb.dev` | Relay server host                                                |
 | `--relay-port` | `RELAY_PORT`   | `7777`      | Relay server control port                                        |
 | `--[no-]tls`        | `RELAY_TLS`        | `true`  | Connect to the relay over TLS (use `--no-tls` for local/testing) |
 | `--[no-]tls-verify` | `RELAY_TLS_VERIFY` | `true`  | Verify the relay cert against the system CA store                |
@@ -299,7 +330,7 @@ ruby tunnel.rb 3000 --local-host 127.0.0.1
 3. Receives `{ status: "ok", url: "...", token: "..." }`.
 4. Enters a read loop on the control socket:
   - `**ping**` → replies with `**pong**` (keeps the connection alive through NAT).
-  - `**new_connection**` → opens a fresh TLS connection to the relay, sends `bind` with the given `conn_id`, then proxies bytes between relay and the local service over plain TCP.
+  - `**new_connection**` → opens a fresh connection to the relay (TLS when enabled, plain TCP with `--no-tls`), sends `bind` with the given `conn_id`, then proxies bytes between relay and the local service over plain TCP.
 5. If the local service is unreachable (connection refused, host unreachable, DNS failure, connect timeout), the client sends a `502 Bad Gateway` HTTP response back through the relay instead of dropping the connection.
 6. On disconnect, the client reconnects automatically with **exponential backoff** (1 s → 2 s → 4 s → … capped at 30 s, reset to 1 s after a successful registration), reusing the saved token.
 
@@ -353,7 +384,7 @@ All messages are **newline-delimited JSON** (one object per line).
 ### Request flow (one HTTP request)
 
 ```
-1. Browser → server:8080   GET /path  Host: xxxx.tunnel.test
+1. Browser → server:8080   GET /path  Host: xxxx.tunnel-rb.dev
 2. Server → client (control):  {"action":"new_connection","conn_id":"<uuid>"}
 3. Client → server (new TCP):  {"action":"bind","conn_id":"<uuid>"}
 4. Server forwards buffered HTTP headers on the data socket
@@ -389,7 +420,6 @@ bin/relay_server          Entry point
 lib/relay/                Server implementation
 relay_server.rb           Compatibility shim
 tunnel.rb                 Tunnel client
-relay.rb                  Legacy single-file prototype (not used by bin/relay_server)
 test/relay/               Unit and integration tests
 ```
 

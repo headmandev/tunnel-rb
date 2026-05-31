@@ -16,5 +16,7 @@ Relay::Server.new(
   control_port: Integer(ENV.fetch("RELAY_CONTROL_PORT", "7777")),
   public_port: public_port,
   domain: ENV.fetch("RELAY_DOMAIN", "localhost"),
-  url_port: url_port
+  url_port: url_port,
+  tls_cert: ENV["RELAY_TLS_CERT"],
+  tls_key: ENV["RELAY_TLS_KEY"]
 ).start
