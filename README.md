@@ -92,16 +92,16 @@ Press **Ctrl+C** or send **SIGTERM** for graceful shutdown (listeners closed, th
 
 | Option          | Default                                   | Description                                                                   |
 | --------------- | ----------------------------------------- | ----------------------------------------------------------------------------- |
-| `control_port`  | `7777`                                    | Tunnel client control plane                                                   |
-| `public_port`   | `8080`                                    | Public HTTP edge (port the relay binds/listens on)                            |
-| `domain`        | `"tunnel.test"`                           | Base domain for the registration URL (`https://{subdomain}.{domain}`)         |
+| `control_port`  | _(required)_                              | Tunnel client control plane                                                   |
+| `public_port`   | _(required)_                              | Public HTTP edge (port the relay binds/listens on)                            |
+| `domain`        | _(required)_                              | Base domain for the registration URL (`https://{subdomain}.{domain}`)         |
 | `url_port`      | `nil`                                     | Port shown in the registration URL; `nil` omits it (e.g. nginx on 443)        |
 | `tokens_path`   | `/tmp/tunnel-rb-relay-server-tokens.json` | Persistent token store                                                        |
 | `tls_cert`      | `nil`                                     | PEM cert path; enables TLS on the control port when set with `tls_key`        |
 | `tls_key`       | `nil`                                     | PEM private key path; enables TLS on the control port when set with `tls_cert`|
 | `logger`        | `Relay::Logger.new`                       | Injectable logger (stdout/stderr)                                             |
 
-When started via `bin/relay_server`, the control port, public port, and domain can be set with environment variables (defaults shown):
+`control_port`, `public_port`, and `domain` are required keyword arguments. When started via `bin/relay_server` they're supplied from environment variables (defaults shown):
 
 | Env var              | Default          | Maps to        |
 | -------------------- | ---------------- | -------------- |
