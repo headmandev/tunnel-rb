@@ -6,5 +6,7 @@ require "relay/server"
 Relay::Server.new(
   control_port: 7777,
   public_port: 8080,
-  domain_suffix: ".localhost:8080"
+  domain_suffix: ".localhost:8080",
+  tls_cert: ENV["RELAY_TLS_CERT"],
+  tls_key: ENV["RELAY_TLS_KEY"]
 ).start

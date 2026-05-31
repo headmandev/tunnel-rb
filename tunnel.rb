@@ -1,6 +1,7 @@
 require 'socket'
 require 'json'
 require 'optparse'
+require 'openssl'
 
 class Tunnel
   TCP_KEEPALIVE_IDLE = 60
@@ -19,12 +20,16 @@ class Tunnel
     SocketError
   ].freeze
 
-  def initialize(relay_host:, relay_port:, local_host: 'localhost', local_port:)
+  def initialize(relay_host:, relay_port:, local_host: 'localhost', local_port:, tls: false, tls_ca: nil, tls_verify: false)
     @relay_host = relay_host
     @relay_port = relay_port
     @local_host = local_host
     @local_port = local_port
+    @tls = tls
+    @tls_ca = tls_ca
+    @tls_verify = tls_verify
     @token = nil
+    @ssl_context = build_ssl_context if @tls
   end
 
   def start
@@ -58,7 +63,8 @@ class Tunnel
     raise "Registration failed: #{response['error']}" if response['status'] != 'ok'
 
     @token = response['token']
-    puts "\n🚀 [Tunnel] Ready! #{response['url']} -> #{@local_host}:#{@local_port}\n\n"
+    transport = @tls ? 'TLS' : 'TCP'
+    puts "\n🚀 [Tunnel] Ready! #{response['url']} -> #{@local_host}:#{@local_port} (relay: #{transport})\n\n"
 
     yield if block_given?
 
@@ -102,7 +108,35 @@ class Tunnel
   end
 
   def open_tcp(host, port)
-    Socket.tcp(host, port, connect_timeout: CONNECT_TIMEOUT)
+    tcp = Socket.tcp(host, port, connect_timeout: CONNECT_TIMEOUT)
+    return tcp unless @tls
+
+    ssl = OpenSSL::SSL::SSLSocket.new(tcp, @ssl_context)
+    ssl.hostname = host # SNI
+    ssl.sync_close = true
+    ssl.connect
+    ssl.post_connection_check(host) if @ssl_context.verify_mode == OpenSSL::SSL::VERIFY_PEER
+    ssl
+  end
+
+  def build_ssl_context
+    ctx = OpenSSL::SSL::SSLContext.new
+    ctx.min_version = OpenSSL::SSL::TLS1_2_VERSION
+    if @tls_ca
+      # Verify the relay against a specific CA cert/bundle.
+      ctx.verify_mode = OpenSSL::SSL::VERIFY_PEER
+      ctx.ca_file = @tls_ca
+    elsif @tls_verify
+      # Verify the relay against the host's system CA store.
+      ctx.verify_mode = OpenSSL::SSL::VERIFY_PEER
+      store = OpenSSL::X509::Store.new
+      store.set_default_paths
+      ctx.cert_store = store
+    else
+      # Insecure default: accept self-signed relay certs without verification.
+      ctx.verify_mode = OpenSSL::SSL::VERIFY_NONE
+    end
+    ctx
   end
 
   def read_json(socket, what)
@@ -129,13 +163,16 @@ class Tunnel
   end
 
   def enable_tcp_keepalive(socket)
-    socket.setsockopt(:SOCKET, :SO_KEEPALIVE, true)
+    # Operate on the raw fd so this works for both plain TCP and TLS sockets
+    # (SSLSocket does not define setsockopt itself).
+    io = socket.respond_to?(:to_io) ? socket.to_io : socket
+    io.setsockopt(:SOCKET, :SO_KEEPALIVE, true)
     if defined?(Socket::TCP_KEEPIDLE)
-      socket.setsockopt(:TCP, :TCP_KEEPIDLE, TCP_KEEPALIVE_IDLE)
-      socket.setsockopt(:TCP, :TCP_KEEPINTVL, TCP_KEEPALIVE_INTERVAL)
-      socket.setsockopt(:TCP, :TCP_KEEPCNT, TCP_KEEPALIVE_PROBES)
+      io.setsockopt(:TCP, :TCP_KEEPIDLE, TCP_KEEPALIVE_IDLE)
+      io.setsockopt(:TCP, :TCP_KEEPINTVL, TCP_KEEPALIVE_INTERVAL)
+      io.setsockopt(:TCP, :TCP_KEEPCNT, TCP_KEEPALIVE_PROBES)
     elsif defined?(Socket::TCP_KEEPALIVE)
-      socket.setsockopt(:TCP, :TCP_KEEPALIVE, TCP_KEEPALIVE_IDLE)
+      io.setsockopt(:TCP, :TCP_KEEPALIVE, TCP_KEEPALIVE_IDLE)
     end
   rescue StandardError => e
     warn "TCP keepalive not configured: #{e.message}"
@@ -149,12 +186,22 @@ class Tunnel
   end
 end
 
+def env_bool(name, default)
+  value = ENV[name]
+  return default if value.nil? || value.empty?
+
+  ['1', 'true', 'yes'].include?(value.downcase)
+end
+
 def parse_options(argv)
   options = {
     relay_host: ENV.fetch('RELAY_HOST', 'localhost'),
     relay_port: Integer(ENV.fetch('RELAY_PORT', '7777')),
     local_host: ENV.fetch('LOCAL_HOST', 'localhost'),
-    local_port: ENV['LOCAL_PORT'] ? Integer(ENV['LOCAL_PORT']) : nil
+    local_port: ENV['LOCAL_PORT'] ? Integer(ENV['LOCAL_PORT']) : nil,
+    tls: env_bool('RELAY_TLS', true),
+    tls_ca: ENV['RELAY_TLS_CA'],
+    tls_verify: env_bool('RELAY_TLS_VERIFY', true)
   }
 
   parser = OptionParser.new do |opts|
@@ -162,6 +209,9 @@ def parse_options(argv)
     opts.on('--relay-host HOST', "Relay host (default: #{options[:relay_host]})") { |v| options[:relay_host] = v }
     opts.on('--relay-port PORT', Integer, "Relay port (default: #{options[:relay_port]})") { |v| options[:relay_port] = v }
     opts.on('--local-host HOST', "Local host (default: #{options[:local_host]})") { |v| options[:local_host] = v }
+    opts.on('--[no-]tls', 'Connect to the relay over TLS (default: on; use --no-tls for local/testing)') { |v| options[:tls] = v }
+    opts.on('--[no-]tls-verify', 'Verify the relay cert against the system CA store (default: on)') { |v| options[:tls_verify] = v }
+    opts.on('--tls-ca PATH', 'CA cert/bundle to verify the relay instead of the system CA store') { |v| options[:tls_ca] = v }
     opts.on('-h', '--help', 'Show this help') do
       puts opts
       exit

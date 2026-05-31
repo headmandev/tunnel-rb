@@ -51,20 +51,22 @@ rails server -p 3000
 
 **Terminal 3 — tunnel client**
 
+The client connects over TLS by default. The local relay above runs plaintext, so disable TLS with `--no-tls`:
+
 ```bash
-ruby tunnel.rb 3000
+ruby tunnel.rb 3000 --no-tls
 ```
 
 The client prints a public URL, e.g.:
 
 ```
-🚀 [Tunnel] Ready! https://dev-a1b2c3d4.localhost:8080 -> localhost:3000
+🚀 [Tunnel] Ready! https://a1b2c3d4.localhost:8080 -> localhost:3000
 ```
 
 Send a request through the tunnel:
 
 ```bash
-curl -H "Host: dev-a1b2c3d4.localhost:8080" http://127.0.0.1:8080/
+curl -H "Host: a1b2c3d4.localhost:8080" http://127.0.0.1:8080/
 ```
 
 The `Host` header must match the assigned subdomain. For local testing the default suffix is `.localhost:8080`, so no `/etc/hosts` edits are needed when curling `127.0.0.1` directly.
@@ -94,6 +96,8 @@ Press **Ctrl+C** or send **SIGTERM** for graceful shutdown (listeners closed, th
 | `public_port`   | `8080`                                    | Public HTTP edge                                                              |
 | `domain_suffix` | `".tunnel.test"`                          | Appended to subdomain in the registration URL (`https://{subdomain}{suffix}`) |
 | `tokens_path`   | `/tmp/tunnel-rb-relay-server-tokens.json` | Persistent token store                                                        |
+| `tls_cert`      | `nil`                                     | PEM cert path; enables TLS on the control port when set with `tls_key`        |
+| `tls_key`       | `nil`                                     | PEM private key path; enables TLS on the control port when set with `tls_cert`|
 | `logger`        | `Relay::Logger.new`                       | Injectable logger (stdout/stderr)                                             |
 
 
@@ -123,6 +127,7 @@ lib/relay/
   thread_pool.rb      Bounded worker pools with backpressure
   http_request.rb     Header parsing + X-Forwarded-* injection
   socket_helpers.rb   TCP keepalive tuning
+  tls.rb              Optional TLS context + listener wrapping for the control port
   logger.rb           Structured logging wrapper
   client.rb           Per-client state object
 ```
@@ -145,7 +150,7 @@ lib/relay/
 
 ### Token persistence
 
-On first registration the server assigns a random subdomain (e.g. `dev-a1b2c3d4`) and issues a reconnect **token**. Tokens are written to disk so a client can reconnect after a disconnect and keep the same subdomain.
+On first registration the server assigns a random subdomain (e.g. `a1b2c3d4`) and issues a reconnect **token**. Tokens are written to disk so a client can reconnect after a disconnect and keep the same subdomain.
 
 - Connected clients: token stays valid regardless of TTL.
 - Disconnected clients: token expires after 24 hours unless the client reconnects in time.
@@ -158,27 +163,97 @@ On first registration the server assigns a random subdomain (e.g. `dev-a1b2c3d4`
 
 ---
 
+## TLS (optional)
+
+TLS can be enabled on the **control port** (`7777`) to encrypt the relay ↔ tunnel-client link. Because both the long-lived control channel and the short-lived data sockets flow through this port, enabling it encrypts all traffic between the client and the relay. The public HTTP port (`8080`) is unaffected — keep terminating its TLS at nginx as before.
+
+The two sides default differently: the **server** runs plaintext unless a cert and key are supplied, while the **client** connects over TLS (and verifies against the system CA store) **by default** — use `--no-tls` to talk to a plaintext relay.
+
+### Generating a self-signed cert (for testing)
+
+```bash
+openssl req -x509 -newkey rsa:2048 -nodes -keyout relay.key -out relay.crt -days 365 -subj "/CN=localhost"
+```
+
+### Server
+
+Pass `tls_cert` / `tls_key`, or set the `RELAY_TLS_CERT` / `RELAY_TLS_KEY` env vars when using `bin/relay_server`:
+
+```bash
+RELAY_TLS_CERT=relay.crt RELAY_TLS_KEY=relay.key bin/relay_server
+```
+
+```ruby
+Relay::Server.new(
+  control_port: 7777,
+  public_port: 8080,
+  tls_cert: "relay.crt",
+  tls_key: "relay.key"
+).start
+```
+
+On startup the server logs whether the control plane is running with TLS enabled.
+
+### Client
+
+TLS and certificate verification are **on by default**. Connecting to a relay with a publicly trusted cert needs no flags:
+
+```bash
+# Default: TLS on, verified against the system CA store (e.g. a Let's Encrypt cert).
+ruby tunnel.rb 3000 --relay-host relay.example.com
+
+# Custom CA: verify against a specific CA bundle instead of the system store.
+ruby tunnel.rb 3000 --relay-host relay.example.com --tls-ca ca.pem
+
+# Self-signed relay: keep TLS but skip verification.
+ruby tunnel.rb 3000 --relay-host relay.example.com --no-tls-verify
+
+# Plaintext relay (local dev / tests): disable TLS entirely.
+ruby tunnel.rb 3000 --no-tls
+```
+
+The same options are available via `RELAY_TLS` / `RELAY_TLS_VERIFY` (`1`/`true`/`yes`, default on) and `RELAY_TLS_CA`.
+
+The client has three TLS verification modes (TLS itself is toggled with `--[no-]tls`):
+
+| Mode          | Flags                       | Verification                                                  |
+| ------------- | --------------------------- | ------------------------------------------------------------- |
+| System CAs    | _(default)_                 | `VERIFY_PEER` against the OS trusted CA store + hostname check |
+| Custom CA     | `--tls-ca PATH`             | `VERIFY_PEER` against the given CA cert/bundle + hostname check |
+| Insecure      | `--no-tls-verify`           | None (`VERIFY_NONE`) — accepts any cert, for self-signed relays |
+
+`--tls-ca` takes precedence over the system-CA default if both are in effect.
+
+> Note: because verification is on by default, a self-signed relay needs `--no-tls-verify`, and a plaintext relay needs `--no-tls`. Both verifying modes include a hostname check.
+
+---
+
 ## Tunnel client
 
 ### Running
 
 ```bash
-ruby tunnel.rb 3000
+ruby tunnel.rb 3000 --no-tls
 ruby tunnel.rb 3000 --relay-host relay.example.com --relay-port 7777
 ruby tunnel.rb --help
 ```
+
+TLS is on by default (see [TLS](#tls-optional)); pass `--no-tls` when the relay is plaintext (local dev/testing).
 
 The local port can be passed as the first positional argument or via the `LOCAL_PORT` environment variable. The client exits with status 1 if neither is set.
 
 ### Configuration
 
 
-| Flag           | Env var      | Default     | Description                          |
-| -------------- | ------------ | ----------- | ------------------------------------ |
-| (positional)   | `LOCAL_PORT` | —           | Port of the local service (required) |
-| `--local-host` | `LOCAL_HOST` | `localhost` | Host of the local service            |
-| `--relay-host` | `RELAY_HOST` | `localhost` | Relay server host                    |
-| `--relay-port` | `RELAY_PORT` | `7777`      | Relay server control port            |
+| Flag           | Env var        | Default     | Description                                                      |
+| -------------- | -------------- | ----------- | ---------------------------------------------------------------- |
+| (positional)   | `LOCAL_PORT`   | —           | Port of the local service (required)                             |
+| `--local-host` | `LOCAL_HOST`   | `localhost` | Host of the local service                                        |
+| `--relay-host` | `RELAY_HOST`   | `localhost` | Relay server host                                                |
+| `--relay-port` | `RELAY_PORT`   | `7777`      | Relay server control port                                        |
+| `--[no-]tls`        | `RELAY_TLS`        | `true`  | Connect to the relay over TLS (use `--no-tls` for local/testing) |
+| `--[no-]tls-verify` | `RELAY_TLS_VERIFY` | `true`  | Verify the relay cert against the system CA store                |
+| `--tls-ca`          | `RELAY_TLS_CA`     | —       | CA cert/bundle to verify the relay instead of the system store   |
 
 
 Examples:
@@ -190,12 +265,12 @@ ruby tunnel.rb 3000 --local-host 127.0.0.1
 
 ### Behaviour
 
-1. Opens a TCP connection to the relay control port (5 s connect timeout).
+1. Opens a connection to the relay control port (5 s connect timeout), wrapped in TLS unless `--no-tls` is set.
 2. Sends `register` (with optional `token` on reconnect).
 3. Receives `{ status: "ok", url: "...", token: "..." }`.
 4. Enters a read loop on the control socket:
   - `**ping**` → replies with `**pong**` (keeps the connection alive through NAT).
-  - `**new_connection**` → opens a fresh TCP connection, sends `bind` with the given `conn_id`, proxies bytes between relay and the local service.
+  - `**new_connection**` → opens a fresh connection (same TLS setting), sends `bind` with the given `conn_id`, proxies bytes between relay and the local service.
 5. If the local service is unreachable (connection refused, host unreachable, DNS failure, connect timeout), the client sends a `502 Bad Gateway` HTTP response back through the relay instead of dropping the connection.
 6. On disconnect, the client reconnects automatically with **exponential backoff** (1 s → 2 s → 4 s → … capped at 30 s, reset to 1 s after a successful registration), reusing the saved token.
 
@@ -249,7 +324,7 @@ All messages are **newline-delimited JSON** (one object per line).
 ### Request flow (one HTTP request)
 
 ```
-1. Browser → server:8080   GET /path  Host: dev-xxxx.tunnel.test
+1. Browser → server:8080   GET /path  Host: xxxx.tunnel.test
 2. Server → client (control):  {"action":"new_connection","conn_id":"<uuid>"}
 3. Client → server (new TCP):  {"action":"bind","conn_id":"<uuid>"}
 4. Server forwards buffered HTTP headers on the data socket

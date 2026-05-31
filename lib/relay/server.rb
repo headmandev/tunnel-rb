@@ -4,6 +4,7 @@ require_relative "token_store"
 require_relative "pending_connections"
 require_relative "control_server"
 require_relative "public_server"
+require_relative "tls"
 
 module Relay
   # Top-level coordinator. Wires the components together, owns the
@@ -14,6 +15,8 @@ module Relay
       public_port: 8080,
       domain_suffix: ".tunnel.test",
       tokens_path: TokenStore::DEFAULT_PATH,
+      tls_cert: nil,
+      tls_key: nil,
       logger: Logger.new
     )
       @logger = logger
@@ -25,12 +28,15 @@ module Relay
       )
       @pending_connections = PendingConnections.new
 
+      tls_context = TLS.server_context(cert_path: tls_cert, key_path: tls_key)
+
       @control = ControlServer.new(
         port: control_port,
         domain_suffix: domain_suffix,
         registry: @registry,
         token_store: @token_store,
         pending_connections: @pending_connections,
+        tls_context: tls_context,
         logger: @logger
       )
       @public = PublicServer.new(
@@ -47,6 +53,7 @@ module Relay
 
     def start(install_signals: true)
       @logger.info "🚀 Starting relay server..."
+      @logger.info(@control.tls? ? "🔒 Control plane TLS: enabled" : "🔓 Control plane TLS: disabled")
       install_signal_handlers if install_signals
 
       @threads << Thread.new { @control.start }

@@ -11,7 +11,6 @@ module Relay
     DEFAULT_PATH = "/tmp/tunnel-rb-relay-server-tokens.json".freeze
     TOKEN_TTL = 24 * 3600 # seconds
     CLEANUP_INTERVAL = 600
-    SUBDOMAIN_PREFIX = "dev-".freeze
 
     # active_subdomains: callable returning a Set/Array of subdomains held
     # by currently-connected clients. Used to keep their tokens alive and to
@@ -66,7 +65,7 @@ module Relay
     def generate_subdomain
       @mutex.synchronize do
         loop do
-          candidate = "#{SUBDOMAIN_PREFIX}#{SecureRandom.hex(4)}"
+          candidate = SecureRandom.hex(4)
           return candidate unless taken_unlocked?(candidate)
         end
       end

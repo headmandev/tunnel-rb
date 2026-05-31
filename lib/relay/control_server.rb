@@ -3,6 +3,7 @@ require "socket"
 
 require_relative "thread_pool"
 require_relative "socket_helpers"
+require_relative "tls"
 
 module Relay
   # Owns the control plane: port 7777 listener, handshake handler, the
@@ -18,12 +19,13 @@ module Relay
     SELECT_TIMEOUT = 1.0
     IDLE_SLEEP = 0.5 # when no clients are connected
 
-    def initialize(port:, domain_suffix:, registry:, token_store:, pending_connections:, logger:)
+    def initialize(port:, domain_suffix:, registry:, token_store:, pending_connections:, logger:, tls_context: nil)
       @port = port
       @domain_suffix = domain_suffix
       @registry = registry
       @token_store = token_store
       @pending_connections = pending_connections
+      @tls_context = tls_context
       @logger = logger
 
       @pool = ThreadPool.new(HANDSHAKE_POOL_SIZE, max_queue: HANDSHAKE_QUEUE_SIZE)
@@ -31,9 +33,14 @@ module Relay
       @server = nil
     end
 
+    def tls?
+      !@tls_context.nil?
+    end
+
     # Blocking accept loop. Returns when stop is called.
     def start
-      @server = TCPServer.new("0.0.0.0", @port)
+      tcp_server = TCPServer.new("0.0.0.0", @port)
+      @server = tls? ? TLS.wrap_listener(tcp_server, @tls_context) : tcp_server
       @logger.info "🎧 Control server listening for clients on #{@port}"
 
       loop do
@@ -97,6 +104,10 @@ module Relay
     end
 
     def handle_connection(socket)
+      # SSLServer defers the handshake (start_immediately = false), so we run
+      # it here in the worker thread rather than blocking the accept loop.
+      socket.accept if tls?
+
       line = socket.gets
       return socket.close rescue nil unless line
 
@@ -144,16 +155,25 @@ module Relay
       # Socket already removed (e.g. ping_loop closed it); drop it.
       return disconnect(socket, log: false) unless client
 
-      chunk = socket.recv_nonblock(READ_CHUNK, exception: false)
-      case chunk
-      when :wait_readable
-        return # spurious wakeup; nothing to read
-      when nil, ""
-        return disconnect(socket)
-      end
-
       buffer = client.read_buffer
-      buffer << chunk
+
+      # Drain in a loop: a TLS socket can hold decrypted bytes that IO.select
+      # never surfaces (readiness is at the TCP layer, but a full TLS record
+      # may already be buffered). read_nonblock works for plain and TLS
+      # sockets alike, unlike recv_nonblock which SSLSocket does not support.
+      loop do
+        chunk = socket.read_nonblock(READ_CHUNK, exception: false)
+        case chunk
+        when :wait_readable, :wait_writable
+          break # nothing more to read right now
+        when nil
+          return disconnect(socket)
+        when ""
+          break
+        end
+
+        buffer << chunk
+      end
 
       while (idx = buffer.index("\n"))
         line = buffer.slice!(0, idx + 1)
@@ -165,7 +185,7 @@ module Relay
         @logger.warn "control buffer overflow on #{client.subdomain}, disconnecting"
         disconnect(socket)
       end
-    rescue IOError, SystemCallError
+    rescue IOError, SystemCallError, OpenSSL::SSL::SSLError
       disconnect(socket)
     end
 
