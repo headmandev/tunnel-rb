@@ -3,7 +3,7 @@ require "tempfile"
 require "json"
 require "set"
 
-require "relay/token_store"
+require "tunnel_rb/server/token_store"
 
 class TokenStoreTest < Minitest::Test
   def setup
@@ -19,7 +19,7 @@ class TokenStoreTest < Minitest::Test
   end
 
   def build_store
-    Relay::TokenStore.new(
+    TunnelRb::Server::TokenStore.new(
       path: @tmp.path,
       active_subdomains: -> { @active }
     )

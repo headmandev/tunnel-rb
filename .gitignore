@@ -2,3 +2,6 @@
 .vscode/
 .cursor/
 .idea/
+*.gem
+Gemfile.lock
+pkg/

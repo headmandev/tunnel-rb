@@ -1,22 +1,21 @@
 #!/usr/bin/env ruby
-$LOAD_PATH.unshift File.expand_path("../lib", __dir__)
+# frozen_string_literal: true
+
+$LOAD_PATH.unshift File.expand_path("lib", __dir__)
+
+require "tunnel_rb/server"
 
 if ["1", "true", "yes"].include?(ENV["RELAY_SYNC_OUTPUT"]&.downcase)
   $stdout.sync = true
   $stderr.sync = true
 end
 
-require "relay/server"
-
 public_port = Integer(ENV.fetch("RELAY_PUBLIC_PORT", "8080"))
 
-# Port shown to clients in the registration URL. Defaults to the public port
-# (handy for local dev); set RELAY_URL_PORT="" in production so the URL omits
-# the internal port and relies on nginx (443) instead.
 url_port_env = ENV.fetch("RELAY_URL_PORT", public_port.to_s)
 url_port = url_port_env.empty? ? nil : Integer(url_port_env)
 
-Relay::Server.new(
+TunnelRb::Server.new(
   control_port: Integer(ENV.fetch("RELAY_CONTROL_PORT", "7777")),
   public_port: public_port,
   domain: ENV.fetch("RELAY_DOMAIN", "localhost"),

@@ -1,12 +1,14 @@
-require_relative "logger"
-require_relative "client_registry"
-require_relative "token_store"
-require_relative "pending_connections"
-require_relative "control_server"
-require_relative "public_server"
-require_relative "tls"
+# frozen_string_literal: true
 
-module Relay
+require_relative "server/logger"
+require_relative "server/client_registry"
+require_relative "server/token_store"
+require_relative "server/pending_connections"
+require_relative "server/control_server"
+require_relative "server/public_server"
+require_relative "server/tls"
+
+module TunnelRb
   # Top-level coordinator. Wires the components together, owns the
   # background threads, and handles graceful shutdown on SIGINT/SIGTERM.
   class Server
@@ -54,7 +56,7 @@ module Relay
     end
 
     def start(install_signals: true)
-      @logger.info "🚀 Starting relay server..."
+      @logger.info "🚀 Starting tunnel server..."
       @logger.info(@control.tls? ? "🔒 Control plane TLS: enabled" : "🔓 Control plane TLS: disabled")
       install_signal_handlers if install_signals
 
