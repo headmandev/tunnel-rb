@@ -16,7 +16,11 @@ module Relay
       ctx.cert = certs.shift
       ctx.extra_chain_cert = certs unless certs.empty?
       ctx.key = OpenSSL::PKey.read(File.read(key_path))
-      ctx.min_version = OpenSSL::SSL::TLS1_2_VERSION
+      ctx.min_version = OpenSSL::SSL::TLS1_3_VERSION
+
+      # Enable session resumption: the server issues TLS 1.3 session tickets so
+      # repeat data-socket handshakes skip the expensive signature/verify step.
+      ctx.session_id_context = "relay-rb"
       ctx
     end
 

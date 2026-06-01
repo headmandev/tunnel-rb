@@ -109,6 +109,8 @@ module Relay
       # it here in the worker thread rather than blocking the accept loop.
       socket.accept if tls?
 
+      SocketHelpers.enable_tcp_nodelay(socket)
+
       line = socket.gets
       return socket.close rescue nil unless line
 

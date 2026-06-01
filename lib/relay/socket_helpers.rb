@@ -23,5 +23,15 @@ module Relay
     rescue StandardError => e
       warn "TCP keepalive not configured: #{e.message}"
     end
+
+    # Disables Nagle's algorithm so small writes (TLS handshake records, short
+    # HTTP responses) go out immediately instead of waiting to coalesce. On the
+    # short-lived data sockets this avoids ~40ms Nagle/delayed-ACK stalls.
+    def enable_tcp_nodelay(socket)
+      io = socket.respond_to?(:to_io) ? socket.to_io : socket
+      io.setsockopt(:TCP, :TCP_NODELAY, true)
+    rescue StandardError => e
+      warn "TCP_NODELAY not configured: #{e.message}"
+    end
   end
 end

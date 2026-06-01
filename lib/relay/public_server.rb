@@ -4,6 +4,7 @@ require "timeout"
 
 require_relative "thread_pool"
 require_relative "http_request"
+require_relative "socket_helpers"
 
 module Relay
   # Public-facing HTTP edge: accepts browser connections, parses headers,
@@ -52,6 +53,7 @@ module Relay
       conn_id = nil
       data_socket = nil
       client_ip = browser_socket.remote_address.ip_address rescue "127.0.0.1"
+      SocketHelpers.enable_tcp_nodelay(browser_socket)
 
       host, header_buffer = read_headers(browser_socket, client_ip)
       return unless header_buffer

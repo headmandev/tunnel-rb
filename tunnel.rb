@@ -29,6 +29,8 @@ class Tunnel
     @tls_ca = tls_ca
     @tls_verify = tls_verify
     @token = nil
+    @session_mutex = Mutex.new
+    @tls_session = nil
     @ssl_context = build_ssl_context if @tls
   end
 
@@ -109,10 +111,15 @@ class Tunnel
 
   def open_tcp(host, port, tls: @tls)
     tcp = Socket.tcp(host, port, connect_timeout: CONNECT_TIMEOUT)
+    tcp.setsockopt(:TCP, :TCP_NODELAY, true) rescue nil
     return tcp unless tls
 
     ssl = OpenSSL::SSL::SSLSocket.new(tcp, @ssl_context)
     ssl.hostname = host # SNI
+    # Resume a previous TLS session if we have one, so repeat data-socket
+    # handshakes skip the certificate/signature step.
+    cached_session = @session_mutex.synchronize { @tls_session }
+    ssl.session = cached_session if cached_session
     ssl.sync_close = true
     ssl.connect
     ssl.post_connection_check(host) if @ssl_context.verify_mode == OpenSSL::SSL::VERIFY_PEER
@@ -121,7 +128,15 @@ class Tunnel
 
   def build_ssl_context
     ctx = OpenSSL::SSL::SSLContext.new
-    ctx.min_version = OpenSSL::SSL::TLS1_2_VERSION
+    ctx.min_version = OpenSSL::SSL::TLS1_3_VERSION
+
+    # Cache the TLS 1.3 session ticket the relay sends after each handshake so
+    # subsequent data sockets can resume instead of doing a full handshake.
+    ctx.session_cache_mode = OpenSSL::SSL::SSLContext::SESSION_CACHE_CLIENT
+    ctx.session_new_cb = proc do |_ssl, session|
+      @session_mutex.synchronize { @tls_session = session }
+    end
+
     if @tls_ca
       # Verify the relay against a specific CA cert/bundle.
       ctx.verify_mode = OpenSSL::SSL::VERIFY_PEER
