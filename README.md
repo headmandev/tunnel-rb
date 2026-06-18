@@ -503,7 +503,7 @@ test/server/               Unit and integration tests
 
 ### Runtime
 
-- **Ruby 3.0+** (tested on 3.4)
+- **Ruby 2.7+** (tested on 2.7 and 3.4)
 - **OpenSSL 1.1.1+** with TLS 1.3 support — the client and server load Ruby's `openssl` extension at startup; the default client connects to the hosted server over **TLS 1.3**. Ruby must be built with OpenSSL linked in (`ruby -ropenssl -e 'puts OpenSSL::OPENSSL_VERSION'` should succeed).
   - macOS: satisfied by the system Ruby or [Homebrew](https://brew.sh/) Ruby (`brew install openssl@3` if compiling Ruby from source).
   - Debian/Ubuntu: `sudo apt install openssl ca-certificates` (`libssl-dev` only if you compile Ruby yourself).

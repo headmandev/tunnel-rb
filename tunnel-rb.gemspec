@@ -15,7 +15,7 @@ Gem::Specification.new do |spec|
   DESC
   spec.homepage = "https://github.com/headmandev/tunnel-rb"
   spec.license = "MIT"
-  spec.required_ruby_version = ">= 3.0"
+  spec.required_ruby_version = ">= 2.7"
 
   spec.metadata = {
     "source_code_uri" => spec.homepage
