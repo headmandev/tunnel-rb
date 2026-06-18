@@ -45,28 +45,6 @@ ruby tunnel.rb 3000
 
 The root-level script `tunnel.rb` (and `bin/tunnel`) remain for development checkout.
 
-## Requirements (detailed)
-
-### Runtime
-
-- **Ruby 2.7+** (tested on 2.7 and 3.4)
-- **OpenSSL 1.1.1+** with TLS 1.3 support — the client and server load Ruby's `openssl` extension at startup; the default client connects to the hosted server over **TLS 1.3**. Ruby must be built with OpenSSL linked in (`ruby -ropenssl -e 'puts OpenSSL::OPENSSL_VERSION'` should succeed).
-  - macOS: satisfied by the system Ruby or [Homebrew](https://brew.sh/) Ruby (`brew install openssl@3` if compiling Ruby from source).
-  - Debian/Ubuntu: `sudo apt install openssl ca-certificates` (`libssl-dev` only if you compile Ruby yourself).
-  - Fedora/RHEL: `sudo dnf install openssl ca-certificates`.
-- **Trusted CA certificates** on the host — default client verification uses the OS CA store (`ca-certificates` on Linux). Not needed when using `--no-tls-verify` or `--no-tls`.
-- **No runtime gem dependencies** — Ruby stdlib only (`socket`, `json`, `openssl`, etc.).
-
-### Development (from source / running tests)
-
-- [Bundler](https://bundler.io/) — `bundle install`
-- **minitest** and **rake** — declared as development dependencies in the gemspec
-
-### Optional
-
-- **OpenSSL CLI** — generate self-signed certs for local TLS testing (see [TLS](#tls-optional)).
-- **nginx** (or similar) — TLS termination on the public HTTP port in production (see [Production notes](#production-notes)).
-
 ## Quick start
 
 Start your local app, then run the client with its port — no `--server-host` or other server options needed:
@@ -93,36 +71,6 @@ curl -I https://1ef59cf5.tunnel-rb.dev/
 Each run gets a unique subdomain. TLS to the server is on by default.
 
 > **Self-hosting:** Run your own server with `ruby tunnel-server.rb` only if you want a private instance instead of the hosted tunnel-rb.dev service. See [Quick start (self-hosted)](#quick-start-self-hosted).
-
-## Start here (3 common scenarios)
-
-1. Hosted default (fastest): `tunnel 3000`
-2. Self-hosted local dev (plaintext server):
-   - Terminal 1: `ruby tunnel-server.rb`
-   - Terminal 2: `ruby tunnel.rb 3000 --server-host localhost --no-tls`
-3. Self-hosted production (TLS + reverse proxy):
-   - Set `RELAY_DOMAIN`, `RELAY_TLS_CERT`, `RELAY_TLS_KEY`, and usually `RELAY_URL_PORT=`
-   - Start: `ruby tunnel-server.rb`
-   - Connect: `ruby tunnel.rb 3000 --server-host your-control-host`
-
-### Library API
-
-```ruby
-require "tunnel_rb"
-
-TunnelRb::Client.new(
-  local_port: 3000,
-  server_host: "server.tunnel-rb.dev", # hosted server (same default as the CLI)
-  server_port: 7777,
-  tls: true
-).start
-
-TunnelRb::Server.new(
-  control_port: 7777,
-  public_port: 8080,
-  domain: "localhost"
-).start
-```
 
 ## Architecture
 
@@ -172,11 +120,11 @@ rails server -p 3000
 
 **Terminal 3 — tunnel client**
 
-The client connects over TLS by default. The local server above runs plaintext, so disable TLS with `--no-tls`:
+The client defaults to the hosted server (`server.tunnel-rb.dev`) with TLS. Point it at your local tunnel server and disable TLS (Terminal 1 runs plaintext):
 
 ```bash
-ruby tunnel.rb 3000 --no-tls
-# after gem install: tunnel 3000 --no-tls
+ruby tunnel.rb 3000 --server-host localhost --no-tls
+# after gem install: tunnel 3000 --server-host localhost --no-tls
 ```
 
 The client prints a public URL, e.g.:
@@ -195,7 +143,7 @@ The `Host` header must match the assigned subdomain. For local testing the defau
 
 > Note: the registration URL is always printed as `https://...` because production traffic is expected behind a TLS edge (e.g. nginx). In local self-hosted mode (`ruby tunnel-server.rb` with no TLS on `public_port`), access the public port via `http://`.
 
-Point the client at your server with `--server-host localhost --no-tls` (plaintext local server) or set `SERVER_HOST` / `SERVER_PORT` for a remote instance.
+For a remote self-hosted server, set `--server-host` / `SERVER_HOST` (and keep TLS on unless that server is plaintext).
 
 ---
 
@@ -255,24 +203,6 @@ TunnelRb::Server.new(
   domain: "tunnel.example.com",
   tokens_path: "/var/lib/tunnel-rb/tokens.json"
 ).start
-```
-
-### Server components
-
-```
-lib/tunnel_rb/server/
-  server.rb           Coordinator — wires components, signal handlers, shutdown
-  control_server.rb   Port 7777 — accept, handshake pool, read loop, ping loop
-  public_server.rb    Port 8080 — HTTP routing, pending connections, byte proxy
-  client_registry.rb  Connected clients (subdomain ↔ socket)
-  token_store.rb      Token persistence and subdomain assignment
-  pending_connections.rb  conn_id ↔ Queue handoff between public and control sides
-  thread_pool.rb      Bounded worker pools with backpressure
-  http_request.rb     Header parsing + X-Forwarded-* injection
-  socket_helpers.rb   TCP keepalive tuning
-  tls.rb              Optional TLS context + listener wrapping for the control port
-  logger.rb           Structured logging wrapper
-  client.rb           Per-client state object
 ```
 
 ### Limits and behaviour
@@ -454,6 +384,9 @@ Both client and server enable TCP keepalive (idle 60 s, interval 30 s, 3 probes)
 
 ## Wire protocol
 
+<details>
+<summary>Message types and request flow (newline-delimited JSON)</summary>
+
 All messages are **newline-delimited JSON** (one object per line).
 
 ### Client → server (first message on every TCP connection)
@@ -494,40 +427,34 @@ All messages are **newline-delimited JSON** (one object per line).
 6. Connection closes when either side finishes
 ```
 
----
-
-## Testing
-
-Requires Ruby stdlib only (minitest).
-
-```bash
-# All tests
-bundle exec rake test
-
-# or manually:
-ruby -Ilib -Itest -e 'Dir["test/**/*_test.rb"].each { |f| require_relative f }'
-
-# Unit tests (TokenStore)
-ruby -Ilib -Itest test/server/token_store_test.rb
-
-# End-to-end (real server on ephemeral ports, fake tunnel client, HTTP request)
-ruby -Ilib -Itest test/server/integration_test.rb
-```
-
-Integration tests start a real `TunnelRb::Server` on random free ports with an isolated token file. They do **not** touch `/tmp/tunnel-rb-server-tokens.json`.
+</details>
 
 ---
 
-## Project layout
+## Requirements (detailed)
 
-```
-exe/tunnel                Gem executable (client)
-lib/tunnel_rb/            Client library + CLI
-lib/tunnel_rb/server/      Server (run from checkout: ruby tunnel-server.rb)
-tunnel-rb.gemspec         Gem specification
-bin/                      Development entry points
-tunnel.rb                 Development shim (client)
-tunnel-server.rb           Server entry point (checkout only)
-test/server/               Unit and integration tests
-```
+<details>
+<summary>OS packages, runtime, development, and optional tools</summary>
+
+### Runtime
+
+- **Ruby 2.7+** (tested on 2.7 and 3.4)
+- **OpenSSL 1.1.1+** with TLS 1.3 support — the client and server load Ruby's `openssl` extension at startup; the default client connects to the hosted server over **TLS 1.3**. Ruby must be built with OpenSSL linked in (`ruby -ropenssl -e 'puts OpenSSL::OPENSSL_VERSION'` should succeed).
+  - macOS: satisfied by the system Ruby or [Homebrew](https://brew.sh/) Ruby (`brew install openssl@3` if compiling Ruby from source).
+  - Debian/Ubuntu: `sudo apt install openssl ca-certificates` (`libssl-dev` only if you compile Ruby yourself).
+  - Fedora/RHEL: `sudo dnf install openssl ca-certificates`.
+- **Trusted CA certificates** on the host — default client verification uses the OS CA store (`ca-certificates` on Linux). Not needed when using `--no-tls-verify` or `--no-tls`.
+- **No runtime gem dependencies** — Ruby stdlib only (`socket`, `json`, `openssl`, etc.).
+
+### Development (from source / running tests)
+
+- [Bundler](https://bundler.io/) — `bundle install`
+- **minitest** and **rake** — declared as development dependencies in the gemspec
+
+### Optional
+
+- **OpenSSL CLI** — generate self-signed certs for local TLS testing (see [TLS](#tls-optional)).
+- **nginx** (or similar) — TLS termination on the public HTTP port in production (see [Production notes](#production-notes)).
+
+</details>
 
