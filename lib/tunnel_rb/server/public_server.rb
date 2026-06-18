@@ -100,6 +100,9 @@ module TunnelRb
       rescue HttpRequest::Timeout
         send_error(browser_socket, 408, "Request Timeout")
         [nil, nil]
+      rescue HttpRequest::InvalidRequest
+        send_error(browser_socket, 400, "Bad Request")
+        [nil, nil]
       end
 
       def extract_subdomain(host_header)
@@ -122,6 +125,7 @@ module TunnelRb
       end
 
       STATUS_TEXTS = {
+        400 => "Bad Request",
         404 => "Not Found",
         408 => "Request Timeout",
         502 => "Bad Gateway",
