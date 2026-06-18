@@ -4,7 +4,17 @@ Expose a local HTTP server (e.g. a Rails app on port 3000) to the internet throu
 
 **By default, no server setup is required.** The client connects to the hosted tunnel server at [tunnel-rb.dev](https://tunnel-rb.dev) and prints a public HTTPS URL you can open or share. Run your own server only if you want to self-host a private instance.
 
-Built with plain Ruby — blocking I/O and threads, no runtime gem dependencies.
+Built with plain Ruby — blocking I/O and threads, no runtime gem dependencies (system **OpenSSL** required).
+
+## Requirements
+
+Ruby **2.7+** and **OpenSSL 1.1.1+** with TLS 1.3 support. Verify with:
+
+```bash
+ruby -ropenssl -e 'puts OpenSSL::OPENSSL_VERSION'
+```
+
+Full OS packages, development deps, and optional tools: [Requirements (detailed)](#requirements).
 
 ## Installation
 
@@ -34,6 +44,30 @@ ruby tunnel.rb 3000
 ```
 
 The root-level script `tunnel.rb` (and `bin/tunnel`) remain for development checkout.
+
+<a id="requirements"></a>
+
+## Requirements
+
+### Runtime
+
+- **Ruby 2.7+** (tested on 2.7 and 3.4)
+- **OpenSSL 1.1.1+** with TLS 1.3 support — the client and server load Ruby's `openssl` extension at startup; the default client connects to the hosted server over **TLS 1.3**. Ruby must be built with OpenSSL linked in (`ruby -ropenssl -e 'puts OpenSSL::OPENSSL_VERSION'` should succeed).
+  - macOS: satisfied by the system Ruby or [Homebrew](https://brew.sh/) Ruby (`brew install openssl@3` if compiling Ruby from source).
+  - Debian/Ubuntu: `sudo apt install openssl ca-certificates` (`libssl-dev` only if you compile Ruby yourself).
+  - Fedora/RHEL: `sudo dnf install openssl ca-certificates`.
+- **Trusted CA certificates** on the host — default client verification uses the OS CA store (`ca-certificates` on Linux). Not needed when using `--no-tls-verify` or `--no-tls`.
+- **No runtime gem dependencies** — Ruby stdlib only (`socket`, `json`, `openssl`, etc.).
+
+### Development (from source / running tests)
+
+- [Bundler](https://bundler.io/) — `bundle install`
+- **minitest** and **rake** — declared as development dependencies in the gemspec
+
+### Optional
+
+- **OpenSSL CLI** — generate self-signed certs for local TLS testing (see [TLS](#tls-optional)).
+- **nginx** (or similar) — TLS termination on the public HTTP port in production (see [Production notes](#production-notes)).
 
 ## Quick start
 
@@ -498,26 +532,4 @@ tunnel.rb                 Development shim (client)
 tunnel-server.rb           Server entry point (checkout only)
 test/server/               Unit and integration tests
 ```
-
-## Requirements
-
-### Runtime
-
-- **Ruby 2.7+** (tested on 2.7 and 3.4)
-- **OpenSSL 1.1.1+** with TLS 1.3 support — the client and server load Ruby's `openssl` extension at startup; the default client connects to the hosted server over **TLS 1.3**. Ruby must be built with OpenSSL linked in (`ruby -ropenssl -e 'puts OpenSSL::OPENSSL_VERSION'` should succeed).
-  - macOS: satisfied by the system Ruby or [Homebrew](https://brew.sh/) Ruby (`brew install openssl@3` if compiling Ruby from source).
-  - Debian/Ubuntu: `sudo apt install openssl ca-certificates` (`libssl-dev` only if you compile Ruby yourself).
-  - Fedora/RHEL: `sudo dnf install openssl ca-certificates`.
-- **Trusted CA certificates** on the host — default client verification uses the OS CA store (`ca-certificates` on Linux). Not needed when using `--no-tls-verify` or `--no-tls`.
-- **No runtime gem dependencies** — Ruby stdlib only (`socket`, `json`, `openssl`, etc.).
-
-### Development (from source / running tests)
-
-- [Bundler](https://bundler.io/) — `bundle install`
-- **minitest** and **rake** — declared as development dependencies in the gemspec
-
-### Optional
-
-- **OpenSSL CLI** — generate self-signed certs for local TLS testing (see [TLS](#tls-optional)).
-- **nginx** (or similar) — TLS termination on the public HTTP port in production (see [Production notes](#production-notes)).
 
