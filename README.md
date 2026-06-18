@@ -501,6 +501,23 @@ test/server/               Unit and integration tests
 
 ## Requirements
 
-- Ruby 3.x (tested on 3.4)
-- No runtime gem dependencies (stdlib only)
+### Runtime
+
+- **Ruby 3.0+** (tested on 3.4)
+- **OpenSSL 1.1.1+** with TLS 1.3 support — the client and server load Ruby's `openssl` extension at startup; the default client connects to the hosted server over **TLS 1.3**. Ruby must be built with OpenSSL linked in (`ruby -ropenssl -e 'puts OpenSSL::OPENSSL_VERSION'` should succeed).
+  - macOS: satisfied by the system Ruby or [Homebrew](https://brew.sh/) Ruby (`brew install openssl@3` if compiling Ruby from source).
+  - Debian/Ubuntu: `sudo apt install openssl ca-certificates` (`libssl-dev` only if you compile Ruby yourself).
+  - Fedora/RHEL: `sudo dnf install openssl ca-certificates`.
+- **Trusted CA certificates** on the host — default client verification uses the OS CA store (`ca-certificates` on Linux). Not needed when using `--no-tls-verify` or `--no-tls`.
+- **No runtime gem dependencies** — Ruby stdlib only (`socket`, `json`, `openssl`, etc.).
+
+### Development (from source / running tests)
+
+- [Bundler](https://bundler.io/) — `bundle install`
+- **minitest** and **rake** — declared as development dependencies in the gemspec
+
+### Optional
+
+- **OpenSSL CLI** — generate self-signed certs for local TLS testing (see [TLS](#tls-optional)).
+- **nginx** (or similar) — TLS termination on the public HTTP port in production (see [Production notes](#production-notes)).
 
