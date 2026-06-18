@@ -14,7 +14,7 @@ Ruby **2.7+** and **OpenSSL 1.1.1+** with TLS 1.3 support. Verify with:
 ruby -ropenssl -e 'puts OpenSSL::OPENSSL_VERSION'
 ```
 
-Full OS packages, development deps, and optional tools: [Requirements (detailed)](#requirements).
+Full OS packages, development deps, and optional tools: [Requirements (detailed)](#requirements-detailed).
 
 ## Installation
 
@@ -45,9 +45,7 @@ ruby tunnel.rb 3000
 
 The root-level script `tunnel.rb` (and `bin/tunnel`) remain for development checkout.
 
-<a id="requirements"></a>
-
-## Requirements
+## Requirements (detailed)
 
 ### Runtime
 
