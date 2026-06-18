@@ -1,10 +1,15 @@
 # [tunnel-rb](https://github.com/headmandev/tunnel-rb)
 
-Expose a local HTTP server (e.g. a Rails app on port 3000) to the internet through a tunnel server. A tunnel **client** running on your machine maintains a persistent control connection to the tunnel **server**; incoming browser traffic hits the server and is forwarded through the client to your local process.
+Expose a local HTTP server to the internet through a tunnel server. A tunnel **client** running on your machine maintains a persistent control connection to the tunnel **server**; incoming browser traffic hits the server and is forwarded through the client to your local process.
 
-**By default, no server setup is required.** The client connects to the hosted tunnel server at [tunnel-rb.dev](https://tunnel-rb.dev) and prints a public HTTPS URL you can open or share. Run your own server only if you want to self-host a private instance.
+**By default, no server setup is required.** The client connects to the hosted tunnel server at [tunnel-rb.dev](https://tunnel-rb.dev) and prints a public HTTPS URL you can open or share. 
 
-Built with plain Ruby — blocking I/O and threads, no runtime gem dependencies (system **OpenSSL** required).
+<img width="2003" height="445" alt="image" src="https://github.com/user-attachments/assets/a6fe55b8-61f3-4bda-9d8e-7a36627c633f" />
+
+
+
+Built with plain Ruby — blocking I/O and threads, no runtime gem dependencies (system **OpenSSL** required). </br>
+Run your own server only if you want to self-host a private instance.
 
 ## Requirements
 
