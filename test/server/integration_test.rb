@@ -71,6 +71,16 @@ class IntegrationTest < Minitest::Test
     assert_includes response, "Tunnel 'no-such' not found"
   end
 
+  def test_invalid_request_line_returns_400
+    sock = TCPSocket.new("127.0.0.1", @public_port)
+    sock.print("NOT HTTP\r\nHost: foo.test\r\n\r\n")
+    response = sock.read
+    assert_match(%r{\AHTTP/1\.1 400 Bad Request}, response)
+    assert_includes response, "Bad Request"
+  ensure
+    sock&.close rescue nil
+  end
+
   def test_token_persists_across_reconnect
     sock1 = TCPSocket.new("127.0.0.1", @control_port)
     sock1.puts({ action: "register" }.to_json)
